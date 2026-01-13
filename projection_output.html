@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Projection Output — 骆岗公园 投影演示</title>
+  <style>
+    html,body { margin:0; height:100%; background:#000; }
+    #container { width:100vw; height:100vh; overflow:hidden; }
+    #ui { position: absolute; left: 16px; top: 12px; color:#96c8ff; font-family: monospace; z-index:10 }
+    #ui small { color:#9fbfff; display:block; margin-top:6px }
+    .hint { opacity:0.8 }
+  </style>
+</head>
+<body>
+  <div id="container"></div>
+  <div id="ui">
+    <div>Projection Demo — 雷达扫描<br><small>远航</small></div>
+  </div>
+
+  <!-- three.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+  <script>
+    // 实现三幕连续叙事并修复鼠标交互
+    const container = document.getElementById('container');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x050a28);
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 5000);
+    camera.position.set(0, 0, 900);
+
+    const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    container.appendChild(renderer.domElement);
+
+    const ambient = new THREE.AmbientLight(0xffffff, 0.6); scene.add(ambient);
+    const point = new THREE.PointLight(0x8fbfff, 1.2, 3000); point.position.set(0,400,800); scene.add(point);
+
+    let paused=false; let mouseActive=false;
+
+    window.addEventListener('resize', ()=>{ camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
+
+    // ---------- Scene 1: 远航 (雷达扫描) ----------
+    const s1 = new THREE.Group(); scene.add(s1);
+    function buildScene1(){
+      const radarGroup = new THREE.Group();
+      
+      // 多层同心雷达圆
+      for(let r=1; r<=4; r++){
+        const radarGeo = new THREE.BufferGeometry();
+        const pts = [];
+        for(let k=0; k<=360; k+=3){
+          const rad = r * 150;
+          const rad_k = k * Math.PI / 180;
+          pts.push(new THREE.Vector3(
+            Math.cos(rad_k)*rad,
+            Math.sin(rad_k)*rad,
+            0
+          ));
+        }
+        const radarLine = new THREE.LineLoop(radarGeo.setFromPoints(pts), 
+          new THREE.LineBasicMaterial({ color: 0x5fb3ff, transparent: true, opacity: 0.15 + r*0.15 }));
+        radarGroup.add(radarLine);
+      }
+      
+      // 扫描光线（放射状）
+      const scanGroup = new THREE.Group();
+      for(let i=0; i<12; i++){
+        const angle = (i/12)*Math.PI*2;
+        const pts = [
+          new THREE.Vector3(0, 0, 0),
+          new THREE.Vector3(Math.cos(angle)*700, Math.sin(angle)*700, 0)
+        ];
+        const scanLine = new THREE.LineBasicMaterial({ color: 0x8fcfff, transparent: true, opacity: 0.1 });
+        const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), scanLine);
+        scanGroup.add(line);
+      }
+      radarGroup.add(scanGroup);
+      s1.userData.scanGroup = scanGroup;
+      
+      s1.add(radarGroup);
+      s1.userData.radarGroup = radarGroup;
+    }
+    buildScene1();
+
+    // ---------- Scene 2: 共生 (数字神木 / 分形脉络) ----------
+    const s2 = new THREE.Group(); scene.add(s2);
+    function buildScene2(){
+      // 主干
+      const mainPts=[];
+      for(let i=0;i<50;i++){
+        const t=i/49;
+        const x = Math.sin(t*0.3)*12;
+        const y = t*600 - 280;
+        const z = Math.cos(t*0.4)*10;
+        mainPts.push(new THREE.Vector3(x,y,z));
+      }
+      const mg=new THREE.BufferGeometry().setFromPoints(mainPts);
+      const mm=new THREE.LineBasicMaterial({ color:0x4eff88, transparent:true, opacity:0.8 });
+      const ml=new THREE.Line(mg,mm);
+      s2.add(ml);
+      // 分形分支（从底部生长到顶部）
+      const branches=new THREE.Group();
+      function addBranches(startPt, angle, depth, count){
+        if(depth===0) return;
+        const branchCount = 6 + depth*3;
+        for(let i=0;i<branchCount;i++){
+          const theta = angle + (i/branchCount)*Math.PI*1.8;
+          const length = 120*(1/depth);
+          const steps = 12 + depth*4;
+          const pts=[];
+          pts.push(startPt);
+          for(let s=1;s<steps;s++){
+            const t=s/(steps-1);
+            const r = t*length;
+            const x = startPt.x + Math.cos(theta)*r + (Math.random()-0.5)*3;
+            const y = startPt.y + t*100 + (Math.random()-0.5)*2;
+            const z = startPt.z + Math.sin(theta)*r + (Math.random()-0.5)*3;
+            pts.push(new THREE.Vector3(x,y,z));
+          }
+          const g=new THREE.BufferGeometry().setFromPoints(pts);
+          const hue = 0.33 + Math.random()*0.05;
+          const col=new THREE.Color().setHSL(hue, 0.8, 0.35 + depth*0.08);
+          const m=new THREE.LineBasicMaterial({ color:col, transparent:true, opacity:0.5 + depth*0.15 });
+          const l=new THREE.Line(g,m);
+          l.userData.phase=Math.random()*6;
+          branches.add(l);
+          // 递归添加更细的分支
+          if(depth>1){
+            const endPt=pts[pts.length-1];
+            addBranches(endPt, theta, depth-1, Math.floor(branchCount/2));
+          }
+        }
+      }
+      // 从树的底部开始生长分支
+      addBranches(mainPts[0], Math.PI*0.5, 3, 8);
+      s2.add(branches);
+      s2.userData.branches=branches;
+    }
+    buildScene2();
+
+    // ---------- Scene 3: 脉动 (粒子响应鼠标/人群密度) ----------
+    const s3 = new THREE.Group(); scene.add(s3);
+    const PARTICLES = 6000; let pSys;
+    function buildScene3(){
+      const geom=new THREE.BufferGeometry();
+      const pos=new Float32Array(PARTICLES*3);
+      const col=new Float32Array(PARTICLES*3);
+      const sz=new Float32Array(PARTICLES);
+      for(let i=0;i<PARTICLES;i++){
+        const a=Math.random()*Math.PI*2;
+        const r=40 + Math.random()*380;
+        const x=Math.cos(a)*r + (Math.random()-0.5)*50;
+        const y=(Math.random()-0.5)*350;
+        const z=Math.sin(a)*r + (Math.random()-0.5)*50;
+        pos[i*3]=x; pos[i*3+1]=y; pos[i*3+2]=z;
+        const v=Math.floor(Math.random()*5);
+        const c=new THREE.Color();
+        if(v===0)c.setRGB(1,1,1);
+        else if(v===1)c.setRGB(0.8,0.9,1);
+        else if(v===2)c.setRGB(0.6,0.85,1);
+        else if(v===3)c.setRGB(0.7,1,0.9);
+        else c.setRGB(1,0.8,1);
+        col[i*3]=c.r; col[i*3+1]=c.g; col[i*3+2]=c.b;
+        sz[i]=3+Math.random()*5;
+      }
+      geom.setAttribute('position', new THREE.BufferAttribute(pos,3));
+      geom.setAttribute('color', new THREE.BufferAttribute(col,3));
+      geom.setAttribute('size', new THREE.BufferAttribute(sz,1));
+      const material=new THREE.ShaderMaterial({
+        uniforms:{ uTime:{ value:0 }, uMouse:{ value:new THREE.Vector3(0,0,0) }, texture:{ value:makeSprite()} },
+        vertexShader:`attribute float size; varying vec3 vColor; uniform float uTime; uniform vec3 uMouse; void main(){ vColor=color; vec3 p=position; float d=distance(vec2(p.x,p.y), vec2(uMouse.x,uMouse.y)); float pulse=1.0+4.0*exp(-d*0.008)*sin(uTime*8.0 - d*0.015); vec4 mv = modelViewMatrix * vec4(p,1.0); gl_PointSize = max(2.0, size * pulse * (400.0 / -mv.z)); gl_Position = projectionMatrix * mv; }`,
+        fragmentShader:`uniform sampler2D texture; varying vec3 vColor; void main(){ vec4 t=texture2D(texture, gl_PointCoord); gl_FragColor=vec4(vColor*2.0, t.a); gl_FragColor.rgb *= gl_FragColor.a; }`,
+        blending:THREE.AdditiveBlending, depthTest:false, transparent:true
+      });
+      pSys=new THREE.Points(geom, material);
+      pSys.userData.uTime=material.uniforms.uTime;
+      pSys.userData.uMouse=material.uniforms.uMouse;
+      s3.add(pSys);
+    }
+    function makeSprite(){
+      const s=64;
+      const c=document.createElement('canvas');
+      c.width=s; c.height=s;
+      const ctx=c.getContext('2d');
+      const g=ctx.createRadialGradient(s/2,s/2,0,s/2,s/2,s/2);
+      g.addColorStop(0,'rgba(255,255,255,1)');
+      g.addColorStop(0.4,'rgba(255,255,255,0.7)');
+      g.addColorStop(1,'rgba(255,255,255,0)');
+      ctx.fillStyle=g; ctx.fillRect(0,0,s,s);
+      const t=new THREE.CanvasTexture(c);
+      t.minFilter=THREE.LinearFilter; t.magFilter=THREE.LinearFilter;
+      return t;
+    }
+    buildScene3();
+
+    // initial visibility
+    s1.visible=true; s2.visible=false; s3.visible=false;
+
+    // mouse handling: convert client coords to scene centered coords and update uniform
+    function clientToSceneXY(clientX, clientY){ const rect=renderer.domElement.getBoundingClientRect(); const x=(clientX-rect.left)-window.innerWidth/2; const y=-((clientY-rect.top)-window.innerHeight/2); return {x,y}; }
+    window.addEventListener('mousemove',(ev)=>{ mouseActive=true; const p=clientToSceneXY(ev.clientX,ev.clientY); if(pSys && pSys.userData && pSys.userData.uMouse) pSys.userData.uMouse.value.set(p.x,p.y,0); });
+    window.addEventListener('mouseleave',()=>{ mouseActive=false; if(pSys && pSys.userData && pSys.userData.uMouse) pSys.userData.uMouse.value.set(0,0,0); });
+
+    // controls
+    window.addEventListener('keydown',(e)=>{ if(e.key==='1'){ s1.visible=true; s2.visible=false; s3.visible=false;} if(e.key==='2'){ s1.visible=false; s2.visible=true; s3.visible=false;} if(e.key==='3'){ s1.visible=false; s2.visible=false; s3.visible=true;} if(e.key===' ') paused=!paused; });
+
+    // small audio drone, resume on user click (browser policy)
+    try{ const AudioCtx = window.AudioContext || window.webkitAudioContext; const ac = new AudioCtx(); const o=ac.createOscillator(); const g=ac.createGain(); o.type='sine'; o.frequency.value=36; g.gain.value=0.0008; o.connect(g); g.connect(ac.destination); o.start(); window.addEventListener('click', ()=>{ if(ac.state!=='running') ac.resume(); }); }catch(e){ console.warn('audio fail',e); }
+
+    // animate
+    const clock = new THREE.Clock();
+    function animate(){
+      const t = clock.getElapsedTime();
+      
+      // 雷达扫描旋转
+      if(s1.userData.radarGroup){
+        s1.userData.radarGroup.rotation.z = t * 0.5;
+      }
+      
+      // 扫描光线旋转加速
+      if(s1.userData.scanGroup){
+        s1.userData.scanGroup.rotation.z = t * 1.2;
+      }
+      
+      renderer.render(scene, camera);
+      requestAnimationFrame(animate);
+    }
+    animate();
+
+    console.log('雷达扫描 — 远航');
+  </script>
+</body>
+</html>
